@@ -2,74 +2,32 @@ server:
   port: 8080
   error:
     include-message: always
-spring:
-  application:
-    name: order
+
 ---
 
 spring:
   profiles: default
   jpa:
+    hibernate:
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+      ddl-auto: update
     properties:
       hibernate:
-        show_sql: true
+        #show_sql: true
         format_sql: true
-  kafka:
-    producer:
-      retries: 5
-      acks: all
-      properties:
-        enable:
-          idempotence: true   # Set Producer exactly once Trx
-    consumer:
-      properties:
-        spring.json.trusted.packages: "*"
-        isolation.level: read_committed         
-  cloud:
-    stream:
-      kafka:
-        binder:
-          brokers: localhost:9092
-          transaction:
-            transactionIdPrefix: tx-${random.uuid}   
-        bindings:
-          event-in:
-            consumer:
-              autoCommitOffset: false    # Disable Offset auto commit
-              enableDlq: true
-              dlqName: dlq-application
-              dlqPartitions: 1         
-        streams:
-          binder:
-            configuration:
-              default:
-                key:
-                  serde: org.apache.kafka.common.serialization.Serdes$StringSerde
-                value:
-                  serde: org.apache.kafka.common.serialization.Serdes$StringSerde
-      bindings:
-        event-in:
-          group: Order
-          destination: application
-          contentType: application/json
-        event-out:
-          destination: application
-          contentType: application/json
+        dialect: org.hibernate.dialect.MySQL57Dialect
+  datasource:
+    url: jdbc:mysql://${DOCKER_HOST_IP:localhost}/Order_db?createDatabaseIfNotExist=true
+    username: root
+    password: rootpassword
+    driver-class-name: com.mysql.cj.jdbc.Driver
 
-logging:
-  level:
-    org.hibernate.type: trace
-    org.springframework.cloud: debug
-
-api:
-  url:
-    Delivery: localhost:8082
-api:
-  url:
-    Product: localhost:8083
-api:
-  url:
-    Order: localhost:8081
+  rsocket:
+    server:
+      mapping-path: /rsocket/orders
+      transport: websocket
+      port: 7081
 
 server:
   port: 8081
@@ -78,56 +36,5 @@ server:
 
 spring:
   profiles: docker
-  kafka:
-    producer:
-      retries: 5
-      acks: all
-      properties:
-        enable:
-          idempotence: true   # Set Producer exactly once Trx
-    consumer:
-      properties:
-        spring.json.trusted.packages: "*"
-        isolation.level: read_committed    
-  cloud:
-    stream:
-      kafka:
-        binder:
-          brokers: my-kafka:9092
-          transaction:
-            transactionIdPrefix: tx-${random.uuid}   
-        bindings:
-          event-in:
-            consumer:
-              autoCommitOffset: false    # Disable Offset auto commit
-              enableDlq: true
-              dlqName: dlq-application
-              dlqPartitions: 1              
-        streams:
-          binder:
-            configuration:
-              default:
-                key:
-                  serde: org.apache.kafka.common.serialization.Serdes$StringSerde
-                value:
-                  serde: org.apache.kafka.common.serialization.Serdes$StringSerde
-      bindings:
-        event-in:
-          group: Order
-          destination: application
-          contentType: application/json
-        event-out:
-          destination: application
-          contentType: application/json
 
-
-api:
-  url:
-    delivery: delivery:8080
-api:
-  url:
-    product: product:8080
-api:
-  url:
-    order: order:8080
 

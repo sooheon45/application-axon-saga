@@ -1,130 +1,54 @@
 package application.saga;
 
-import application.config.kafka.KafkaProcessor;
-import application.domain.*;
-import application.external.*;
+import application.command.*;
+import application.event.*;
+import java.util.UUID;
+import org.axonframework.commandhandling.gateway.CommandGateway;
+import org.axonframework.config.ProcessingGroup;
+import org.axonframework.modelling.saga.EndSaga;
+import org.axonframework.modelling.saga.SagaEventHandler;
+import org.axonframework.modelling.saga.StartSaga;
+import org.axonframework.spring.stereotype.Saga;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.cloud.stream.annotation.StreamListener;
-import org.springframework.kafka.support.Acknowledgment;
-import org.springframework.kafka.support.KafkaHeaders;
-import org.springframework.messaging.handler.annotation.Header;
-import org.springframework.messaging.handler.annotation.Payload;
-import org.springframework.stereotype.Service;
+import org.springframework.stereotype.Component;
 
-@Service
+@Component
+@Saga
+@ProcessingGroup("OrderSagaSaga")
 public class OrderSagaSaga {
 
     @Autowired
-    DeliveryService deliveryService;
+    private transient CommandGateway commandGateway;
 
-    @Autowired
-    ProductService productService;
+    @StartSaga
+    @SagaEventHandler(associationProperty = "#correlation-key")
+    public void onOrderPlaced(OrderPlacedEvent event) {
+        StartDeliveryCommand command = new StartDeliveryCommand();
 
-    @Autowired
-    OrderService orderService;
-
-    @StreamListener(
-        value = KafkaProcessor.INPUT,
-        condition = "headers['type']=='OrderPlaced'"
-    )
-    public void wheneverOrderPlaced_OrderSaga(
-        @Payload OrderPlaced orderPlaced,
-        @Header(KafkaHeaders.ACKNOWLEDGMENT) Acknowledgment acknowledgment,
-        @Header(KafkaHeaders.RECEIVED_MESSAGE_KEY) byte[] messageKey
-    ) {
-        OrderPlaced event = orderPlaced;
-        System.out.println(
-            "\n\n##### listener OrderSaga : " + orderPlaced + "\n\n"
-        );
-
-        Delivery delivery = new Delivery();
-        delivery.setOrderId(event.getId());
-
-        deliveryService.startDelivery(delivery);
-
-        // Manual Offset Commit //
-        acknowledgment.acknowledge();
+        commandGateway.send(command);
     }
 
-    @StreamListener(
-        value = KafkaProcessor.INPUT,
-        condition = "headers['type']=='DeliveryStarted'"
-    )
-    public void wheneverDeliveryStarted_OrderSaga(
-        @Payload DeliveryStarted deliveryStarted,
-        @Header(KafkaHeaders.ACKNOWLEDGMENT) Acknowledgment acknowledgment,
-        @Header(KafkaHeaders.RECEIVED_MESSAGE_KEY) byte[] messageKey
-    ) {
-        DeliveryStarted event = deliveryStarted;
-        System.out.println(
-            "\n\n##### listener OrderSaga : " + deliveryStarted + "\n\n"
-        );
+    @SagaEventHandler(associationProperty = "#correlation-key")
+    public void onDeliveryStarted(DeliveryStartedEvent event) {
+        DecreaseStockCommand command = new DecreaseStockCommand();
 
-        try {
-            DecreaseStockCommand decreaseStockCommand = new DecreaseStockCommand();
-            /* Logic */
-            decreaseStockCommand.setOrderId(event.getOrderId());
-
-            productService.decreaseStock(
-                event.getOrderId(),
-                decreaseStockCommand
-            );
-        } catch (Exception e) {
-            CancelDeliveryCommand cancelDeliveryCommand = new CancelDeliveryCommand();
-            /* Logic */
-            cancelDeliveryCommand.setOrderId(event.getOrderId());
-
-            deliveryService.cancelDelivery(
-                event.getOrderId(),
-                cancelDeliveryCommad
-            );
-        }
-
-        // Manual Offset Commit //
-        acknowledgment.acknowledge();
+        commandGateway
+            .send(command)
+            .exceptionally(ex -> {
+                CancelDeliveryCommand cancelDeliveryCommand = new CancelDeliveryCommand();
+                //
+                return commandGateway.send(cancelDeliveryCommand);
+            });
     }
 
-    @StreamListener(
-        value = KafkaProcessor.INPUT,
-        condition = "headers['type']=='StockDecreased'"
-    )
-    public void wheneverStockDecreased_OrderSaga(
-        @Payload StockDecreased stockDecreased,
-        @Header(KafkaHeaders.ACKNOWLEDGMENT) Acknowledgment acknowledgment,
-        @Header(KafkaHeaders.RECEIVED_MESSAGE_KEY) byte[] messageKey
-    ) {
-        StockDecreased event = stockDecreased;
-        System.out.println(
-            "\n\n##### listener OrderSaga : " + stockDecreased + "\n\n"
-        );
+    @SagaEventHandler(associationProperty = "#correlation-key")
+    public void onStockDecreased(StockDecreasedEvent event) {
+        UpdateStatusCommand command = new UpdateStatusCommand();
 
-        UpdateStatusCommand updateStatusCommand = new UpdateStatusCommand();
-        /* Logic */
-        updateStatusCommand.setOrderId(event.getId());
-
-        orderService.updateStatus(event.getId(), updateStatusCommand);
-
-        // Manual Offset Commit //
-        acknowledgment.acknowledge();
+        commandGateway.send(command);
     }
 
-    @StreamListener(
-        value = KafkaProcessor.INPUT,
-        condition = "headers['type']=='OrderComplated'"
-    )
-    public void wheneverOrderComplated_OrderSaga(
-        @Payload OrderComplated orderComplated,
-        @Header(KafkaHeaders.ACKNOWLEDGMENT) Acknowledgment acknowledgment,
-        @Header(KafkaHeaders.RECEIVED_MESSAGE_KEY) byte[] messageKey
-    ) {
-        OrderComplated event = orderComplated;
-        System.out.println(
-            "\n\n##### listener OrderSaga : " + orderComplated + "\n\n"
-        );
-
-        /* Logic */
-
-        // Manual Offset Commit //
-        acknowledgment.acknowledge();
-    }
+    @EndSaga
+    @SagaEventHandler(associationProperty = "#correlation-key")
+    public void onOrderComplated(OrderComplatedEvent event) {}
 }
